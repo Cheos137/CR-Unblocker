@@ -6,9 +6,23 @@ var browser = browser || chrome;
  * @return {Boolean} true if currently in the US
  */
 function isUs() {
+	/* old function body:
 	let usRegExp = new RegExp('United States of America');
 	let location = document.getElementById('footer_country_flag');
 	return !!usRegExp.test(location.alt);
+	*/
+
+	// new method body (principle) by @sabarnac (https://github.com/sabarnac)
+	if (sessionStorage._ucWMConf)
+		return JSON.parse(sessionStorage._ucWMConf).contryCode === "US";
+
+	return (Object.keys(sessionStorage)
+		.map((key) => sessionStorage[key])
+		.map((data) => {
+			try { return JSON.parse(data); } catch (e) { return null; }
+		})
+		.filter((data) => data !== null)
+		.find((data) => "countryCode" in data)?.countryCode === "US");
 }
 
 /**
@@ -68,10 +82,15 @@ browser.runtime.sendMessage({ action: 'getSettings' }, (settings) => {
 					});
 			});
 		}
-	} else if (document.getElementById('footer_country_flag') && !isUs()) {
+	} else if (/*document.getElementById('footer_country_flag') &&*/ !isUs()) { // Cheos: there is no country flag anymore
 		if (settings.switchRegion) {
 			let hostname = window.location.hostname;
-			browser.runtime.sendMessage({ action: 'localizeToUs', extension: hostname.slice(hostname.indexOf('crunchyroll.') + 11, hostname.length), loggedIn: isLoggedIn() });
+			browser.runtime.sendMessage({
+				action: 'localizeToUs',
+				subdomain: hostname.slice(hostname.search(/^https:\/\//) != -1 ? 8 : 7, hostname.indexOf('crunchyroll.'), // Cheos: supply subdomain 
+				extension: hostname.slice(hostname.indexOf('crunchyroll.') + 11, hostname.length),
+				loggedIn: isLoggedIn()
+			});
 		}
 	} else {
 		console.log('You are already registered in the US.');

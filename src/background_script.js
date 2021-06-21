@@ -15,10 +15,11 @@ function resetLastUnblock() {
 
 /**
  * Main function fetching and setting the US based cookies
- * @param {String} extension extension of domain
- * @param {boolean} loggedIn login status of user
+ * @param {String}  subdomain subdomain, if applicable
+ * @param {String}  extension extension of domain
+ * @param {boolean} loggedIn  login status of user
  */
-function localizeToUs(extension) {
+function localizeToUs(subdomain = "", extension) {
 	var lastUnblock = localStorage.getItem('last_unblock')
 
 	if (lastUnblock && lastUnblock > new Date().getTime()) {
@@ -37,7 +38,7 @@ function localizeToUs(extension) {
 			auth = `&auth=${encodeURIComponent(item.login.auth)}`
 		}
 		try {
-			sequentialFetch(SERVERS, extension, auth, item.user)
+			sequentialFetch(SERVERS, subdomain, extension, auth, item.user)
 		} finally {
 			localStorage.setItem('last_unblock', new Date(new Date().getTime() + (60 * 1000)).getTime())
 		}
@@ -46,19 +47,20 @@ function localizeToUs(extension) {
 
 /**
  * Fetch in order an array of servers URLs
- * @param  {Array} servers      Servers to fetch in order
- * @param  {String} extension Extension of the current domain
- * @param  {String} auth      Auth token to login user
- * @param  {Object} user User data for the user to log in
+ * @param {Array}  servers   Servers to fetch in order
+ * @param {String} subdomain subdomain, if applicable
+ * @param {String} extension Extension of the current domain
+ * @param {String} auth      Auth token to login user
+ * @param {Object} user      User data for the user to log in
  */
-function sequentialFetch(servers, extension, auth, user) {
+function sequentialFetch(servers, subdomain = "", extension, auth, user) {
 	console.log(`Fetching server ${servers[0].url}`)
 	fetchServer(servers[0], auth, user)
-		.then(sessionData => updateCookies(extension, sessionData))
+		.then(sessionData => updateCookies(subdomain, extension, sessionData))
 		.catch(e => {
 			console.log(e);
 			if (servers.slice(1).length > 0) {
-				sequentialFetch(servers.slice(1), extension, auth, user)
+				sequentialFetch(servers.slice(1), subdomain, extension, auth, user)
 			} else {
 				notifyUser(`CR-Unblocker couldn't get a session id. Delaying retry for a minute ...`)
 			}
@@ -105,26 +107,43 @@ function fetchServer(server, auth, user) {
 /**
  * Update the cookies to the new values
  * Nested callbacks for Edge compatibility
+ * @param {String} subdomain subdomain, if applicable
  * @param {String} extension hostname extension
  * @param {Object} sessionData  New session data
  */
-function updateCookies(extension, sessionData) {
+function updateCookies(subdomain = "", extension, sessionData) {
 	console.log(`got session id. Setting cookie ${sessionData.session_id}.`)
 	browser.cookies.set({
-		url: `http://crunchyroll${extension}`,
+		url: `https://${subdomain}crunchyroll${extension}`,
 		name: 'session_id',
 		value: sessionData.session_id,
-		domain: `crunchyroll${extension}`,
-		httpOnly: true
+		domain: `${subdomain}crunchyroll${extension}` //,
+		//httpOnly: true
 	}, () => {
 		browser.cookies.set({
-			url: `http://crunchyroll${extension}`,
+			url: `https://${subdomain}crunchyroll${extension}`,
 			name: 'c_locale',
 			value: 'enUS',
-			domain: `crunchyroll${extension}`,
-			httpOnly: true
-		}, () => doLogin(sessionData));
-	})
+			domain: `${subdomain}crunchyroll${extension}` //,
+			//httpOnly: true
+		}, () => {
+			browser.cookies.set({
+				url: `https://${subdomain}crunchyroll${extension}`,
+				name: 'OptanonConsent',
+				value: (await browser.cookies.get({ name: "OptanonConsent" })).value.replace(/(?<=&geolocation=)[a-zA-Z-_]{1,5}(?=%3[bB])/, sessionData.country_code),
+				domain: `${subdomain}crunchyroll${extension}` //,
+				//httpOnly: true
+			}, () => {
+				browser.cookies.set({
+					url: `https://${subdomain}crunchyroll${extension}`,
+					name: 'OptanonControl',
+					value: (await browser.cookies.get({ name: "OptanonControl" })).value.replace(/(?<=ccc=)[a-zA-Z-_]{1,5}/, sessionData.country_code),
+					domain: `${subdomain}crunchyroll${extension}` //,
+					//httpOnly: true
+				}, () => doLogin(sessionData));
+			});
+		});
+	});
 }
 
 /**
@@ -233,7 +252,7 @@ function notifyUser(msg) {
 browser.runtime.onMessage.addListener((message) => {
 	switch (message.action) {
 		case 'localizeToUs':
-			localizeToUs(message.extension, message.loggedIn)
+			localizeToUs(message.subdomain, message.extension, message.loggedIn)
 			break
 		case 'resetLastUnblock':
 			resetLastUnblock()
